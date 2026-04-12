@@ -11,6 +11,45 @@ const BOT_USERNAME = "AZASAVED_bot"
 const ADMIN_ID = 5331869155
 const CHANNEL = "https://t.me/AZATECHNOLOGY_FREE"
 
+// 🔐 PRO SECURITY
+const EXPECTED_BOT = "AZASAVED_bot"
+const REAL_ADMIN = 5331869155
+const SECRET_KEY = "aza_secure_2026"
+
+async function protectBot(bot){
+  try{
+    const me = await bot.getMe()
+    if(me.username !== EXPECTED_BOT){
+      console.log("❌ cloned bot blocked")
+      process.exit(1)
+    }
+  }catch{
+    process.exit(1)
+  }
+}
+
+function protectAdmin(){
+  if(ADMIN_ID !== REAL_ADMIN){
+    console.log("❌ fake admin")
+    process.exit(1)
+  }
+}
+
+function hiddenCheck(){
+  if(SECRET_KEY !== "aza_secure_2026"){
+    process.exit(1)
+  }
+}
+
+function watchdog(users){
+  setInterval(()=>{
+    if(!users.has(REAL_ADMIN)){
+      console.log("❌ admin missing")
+      process.exit(1)
+    }
+  }, 60000)
+}
+
 if (!TOKEN) {
   console.log("TOKEN missing")
   process.exit(1)
@@ -25,19 +64,27 @@ app.listen(PORT)
 const bot = new TelegramBot(TOKEN, { polling: true })
 console.log("Bot started")
 
+// запуск защиты
+;(async ()=>{
+  await protectBot(bot)
+  protectAdmin()
+  hiddenCheck()
+})()
+
 // база
 const users = new Set()
-
-// админ
-let adminBroadcast = false
+watchdog(users)
 
 // кэш
 const cache = new Map()
 
+// админ
+let adminBroadcast = false
+
 // антиспам
 const cooldown = new Map()
 
-// очистка чата
+// очистка
 const lastMessages = new Map()
 
 function antiSpam(id) {
@@ -49,8 +96,8 @@ function antiSpam(id) {
   return false
 }
 
-function sleep(ms) {
-  return new Promise(res => setTimeout(res, ms))
+function sleep(ms){
+  return new Promise(res=>setTimeout(res,ms))
 }
 
 function formatNumber(num){
@@ -63,59 +110,56 @@ function formatNumber(num){
 const queue = []
 let working = false
 
-function addQueue(task) {
+function addQueue(task){
   queue.push(task)
   runQueue()
 }
 
-async function runQueue() {
-  if (working) return
+async function runQueue(){
+  if(working) return
   working = true
 
-  while (queue.length) {
+  while(queue.length){
     const job = queue.shift()
-    try {
+    try{
       await job()
       await sleep(1200)
-    } catch {}
+    }catch{}
   }
 
   working = false
 }
 
-// 🧹 очистка
-async function clearChat(chatId, userId){
+// очистка чата
+async function clearChat(chatId,userId){
   if(!lastMessages.has(userId)) return
 
   const msgs = lastMessages.get(userId)
 
   for(const m of msgs){
     try{
-      await bot.deleteMessage(chatId, m)
+      await bot.deleteMessage(chatId,m)
     }catch{}
   }
 
-  lastMessages.set(userId, [])
+  lastMessages.set(userId,[])
 }
 
-function saveMsg(userId, msgId){
+function saveMsg(userId,msgId){
   if(!lastMessages.has(userId)){
-    lastMessages.set(userId, [])
+    lastMessages.set(userId,[])
   }
-
   lastMessages.get(userId).push(msgId)
 }
 
 // 🚀 START
-bot.onText(/\/start/, async msg => {
+bot.onText(/\/start/, async msg=>{
   const chatId = msg.chat.id
   const userId = msg.from.id
 
   users.add(userId)
 
-  try {
-    await bot.deleteMessage(chatId, msg.message_id)
-  } catch {}
+  try{ await bot.deleteMessage(chatId,msg.message_id) }catch{}
 
   const sent = await bot.sendMessage(chatId,
 `👋 Добро пожаловать!
@@ -129,129 +173,130 @@ bot.onText(/\/start/, async msg => {
 
 👇 Просто отправь ссылку`,
   {
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: "📢 Основной канал", url: CHANNEL }],
-        userId === ADMIN_ID
-          ? [{ text: "⚙️ Админ панель", callback_data: "admin" }]
+    reply_markup:{
+      inline_keyboard:[
+        [{text:"📢 Основной канал",url:CHANNEL}],
+        userId===ADMIN_ID
+          ? [{text:"⚙️ Админ панель",callback_data:"admin"}]
           : []
       ]
     }
   })
 
-  saveMsg(userId, sent.message_id)
+  saveMsg(userId,sent.message_id)
 
   setTimeout(()=>{
-    bot.deleteMessage(chatId, sent.message_id).catch(()=>{})
-  }, 60000)
+    bot.deleteMessage(chatId,sent.message_id).catch(()=>{})
+  },60000)
 })
 
 // кнопки
-bot.on("callback_query", async q => {
+bot.on("callback_query", async q=>{
   const chatId = q.message.chat.id
   const userId = q.from.id
   const data = q.data
 
-  if (data === "donate") {
-    bot.sendMessage(chatId, "💖 Поддержка: @AZAkzn1")
+  if(data==="donate"){
+    const m = await bot.sendMessage(chatId,"💖 Поддержка: @AZAkzn1")
+    saveMsg(userId,m.message_id)
   }
 
-  if (data === "admin" && userId === ADMIN_ID) {
-    const msg = await bot.sendMessage(chatId,
+  if(data==="admin" && userId===ADMIN_ID){
+    const m = await bot.sendMessage(chatId,
 `⚙️ Админ панель
 
 👤 Пользователей: ${users.size}`,
-      {
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: "📢 Рассылка", callback_data: "broadcast" }],
-            [{ text: "📊 Статистика", callback_data: "stats" }]
-          ]
-        }
-      })
-
-    saveMsg(userId, msg.message_id)
+    {
+      reply_markup:{
+        inline_keyboard:[
+          [{text:"📢 Рассылка",callback_data:"broadcast"}],
+          [{text:"📊 Статистика",callback_data:"stats"}]
+        ]
+      }
+    })
+    saveMsg(userId,m.message_id)
   }
 
-  if (data === "stats" && userId === ADMIN_ID) {
-    const msg = await bot.sendMessage(chatId, `📊 Всего пользователей: ${users.size}`)
-    saveMsg(userId, msg.message_id)
+  if(data==="stats" && userId===ADMIN_ID){
+    const m = await bot.sendMessage(chatId,`📊 Всего пользователей: ${users.size}`)
+    saveMsg(userId,m.message_id)
   }
 
-  if (data === "broadcast" && userId === ADMIN_ID) {
-    const msg = await bot.sendMessage(chatId, "✉️ Напиши сообщение для всех")
-    saveMsg(userId, msg.message_id)
+  if(data==="broadcast" && userId===ADMIN_ID){
+    const m = await bot.sendMessage(chatId,"✉️ Напиши сообщение для всех")
+    saveMsg(userId,m.message_id)
     adminBroadcast = true
   }
 })
 
 // сообщения
-bot.on("message", async msg => {
+bot.on("message", async msg=>{
   const chatId = msg.chat.id
   const userId = msg.from.id
 
-  if (!msg.text) return
+  if(!msg.text) return
 
   users.add(userId)
 
-  await clearChat(chatId, userId)
+  await clearChat(chatId,userId)
 
   // рассылка
-  if (adminBroadcast && userId === ADMIN_ID) {
+  if(adminBroadcast && userId===ADMIN_ID){
     adminBroadcast = false
 
-    bot.sendMessage(chatId, "🚀 Рассылка началась")
+    bot.sendMessage(chatId,"🚀 Рассылка началась")
 
-    for (const id of users) {
-      try {
-        await bot.sendMessage(id, msg.text)
+    for(const id of users){
+      try{
+        await bot.sendMessage(id,msg.text)
         await sleep(50)
-      } catch {}
+      }catch{}
     }
 
-    bot.sendMessage(chatId, "✅ Готово")
+    bot.sendMessage(chatId,"✅ Готово")
     return
   }
 
   const links = msg.text.match(/https?:\/\/[^\s]*tiktok\.com\/[^\s]+/g)
-  if (!links) return
+  if(!links) return
 
-  if (antiSpam(userId)) return
+  if(antiSpam(userId)) return
 
-  for (const link of links) {
+  for(const link of links){
 
-    addQueue(async () => {
+    addQueue(async ()=>{
 
       const waitMsg = await bot.sendAnimation(
         chatId,
         "https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/giphy.gif",
-        { caption: "⏳ Загружаю..." }
+        {caption:"⏳ Загружаю..."}
       )
 
-      saveMsg(userId, waitMsg.message_id)
+      saveMsg(userId,waitMsg.message_id)
 
-      try {
+      try{
 
-        if (cache.has(link)) {
+        // кэш
+        if(cache.has(link)){
           const cached = cache.get(link)
 
-          await clearChat(chatId, userId)
+          await clearChat(chatId,userId)
 
-          if (cached.type === "video") {
-            const sent = await bot.sendVideo(chatId, cached.data.file_id, cached.data.options)
-            saveMsg(userId, sent.message_id)
+          if(cached.type==="video"){
+            const sent = await bot.sendVideo(chatId,cached.data.file_id,cached.data.options)
+            saveMsg(userId,sent.message_id)
             return
           }
 
-          if (cached.type === "photo") {
-            const sentMedia = await bot.sendMediaGroup(chatId, cached.data)
-            sentMedia.forEach(m => saveMsg(userId, m.message_id))
+          if(cached.type==="photo"){
+            const sentMedia = await bot.sendMediaGroup(chatId,cached.data)
+            sentMedia.forEach(m=>saveMsg(userId,m.message_id))
             return
           }
         }
 
         const api = `https://www.tikwm.com/api/?url=${encodeURIComponent(link)}`
-        const { data } = await axios.get(api)
+        const {data} = await axios.get(api)
 
         const item = data.data
 
@@ -259,75 +304,69 @@ bot.on("message", async msg => {
         const likes = formatNumber(item.digg_count)
         const author = item.author.nickname
 
-        await clearChat(chatId, userId)
+        await clearChat(chatId,userId)
 
         // фото
-        if (item.images && item.images.length) {
+        if(item.images && item.images.length){
 
-          const media = item.images.map((img, i) => ({
-            type: "photo",
-            media: img,
-            caption: i === 0 ?
+          const media = item.images.map((img,i)=>({
+            type:"photo",
+            media:img,
+            caption:i===0?
 `📥 @${BOT_USERNAME}
 
 👤 ${author}
 👁 ${views}
-❤️ ${likes}` : undefined
+❤️ ${likes}`:undefined
           }))
 
-          const sentMedia = await bot.sendMediaGroup(chatId, media)
+          const sentMedia = await bot.sendMediaGroup(chatId,media)
+          sentMedia.forEach(m=>saveMsg(userId,m.message_id))
 
-          sentMedia.forEach(m => saveMsg(userId, m.message_id))
-
-          cache.set(link, {
-            type: "photo",
-            data: media
-          })
-
+          cache.set(link,{type:"photo",data:media})
           return
         }
 
         // видео
         const video = item.hdplay || item.play
 
-        const sent = await bot.sendVideo(chatId, video, {
+        const sent = await bot.sendVideo(chatId,video,{
           caption:
 `📥 @${BOT_USERNAME}
 
 👤 ${author}
 👁 ${views}
 ❤️ ${likes}`,
-
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: "💖 Поддержка", callback_data: "donate" }],
-              [{ text: "📢 Канал", url: CHANNEL }]
+          reply_markup:{
+            inline_keyboard:[
+              [{text:"💖 Поддержка",callback_data:"donate"}],
+              [{text:"📢 Канал",url:CHANNEL}]
             ]
           }
         })
 
-        saveMsg(userId, sent.message_id)
+        saveMsg(userId,sent.message_id)
 
-        cache.set(link, {
-          type: "video",
-          data: {
-            file_id: sent.video.file_id,
-            options: {
-              caption: sent.caption,
-              reply_markup: sent.reply_markup
+        cache.set(link,{
+          type:"video",
+          data:{
+            file_id:sent.video.file_id,
+            options:{
+              caption:sent.caption,
+              reply_markup:sent.reply_markup
             }
           }
         })
 
-      } catch (e) {
-        await clearChat(chatId, userId)
-        const err = await bot.sendMessage(chatId, "❌ Ошибка загрузки")
-        saveMsg(userId, err.message_id)
+      }catch(e){
+        await clearChat(chatId,userId)
+        const err = await bot.sendMessage(chatId,"❌ Ошибка загрузки")
+        saveMsg(userId,err.message_id)
       }
 
     })
   }
 })
 
-process.on("unhandledRejection", console.error)
-process.on("uncaughtException", console.error)
+process.on("unhandledRejection",console.error)
+process.on("uncaughtException",console.error)
