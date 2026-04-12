@@ -25,10 +25,10 @@ app.listen(PORT)
 const bot = new TelegramBot(TOKEN, { polling: true })
 console.log("Bot started")
 
-// база пользователей
+// база
 const users = new Set()
 
-// админ режим
+// админ
 let adminBroadcast = false
 
 // кэш
@@ -36,6 +36,10 @@ const cache = new Map()
 
 // антиспам
 const cooldown = new Map()
+
+// очистка чата
+const lastMessages = new Map()
+
 function antiSpam(id) {
   const now = Date.now()
   if (cooldown.has(id)) {
@@ -45,11 +49,17 @@ function antiSpam(id) {
   return false
 }
 
-// антибан очередь
 function sleep(ms) {
   return new Promise(res => setTimeout(res, ms))
 }
 
+function formatNumber(num){
+  if(num >= 1_000_000) return (num/1_000_000).toFixed(1)+"M"
+  if(num >= 1_000) return (num/1_000).toFixed(1)+"K"
+  return num
+}
+
+// очередь антибан
 const queue = []
 let working = false
 
@@ -67,12 +77,33 @@ async function runQueue() {
     try {
       await job()
       await sleep(1200)
-    } catch (e) {
-      console.log(e)
-    }
+    } catch {}
   }
 
   working = false
+}
+
+// 🧹 очистка
+async function clearChat(chatId, userId){
+  if(!lastMessages.has(userId)) return
+
+  const msgs = lastMessages.get(userId)
+
+  for(const m of msgs){
+    try{
+      await bot.deleteMessage(chatId, m)
+    }catch{}
+  }
+
+  lastMessages.set(userId, [])
+}
+
+function saveMsg(userId, msgId){
+  if(!lastMessages.has(userId)){
+    lastMessages.set(userId, [])
+  }
+
+  lastMessages.get(userId).push(msgId)
 }
 
 // 🚀 START
@@ -82,7 +113,6 @@ bot.onText(/\/start/, async msg => {
 
   users.add(userId)
 
-  // удаляем /start
   try {
     await bot.deleteMessage(chatId, msg.message_id)
   } catch {}
@@ -101,7 +131,6 @@ bot.onText(/\/start/, async msg => {
   {
     reply_markup: {
       inline_keyboard: [
-        [{ text: "💖 Поддержка создателя", callback_data: "donate" }],
         [{ text: "📢 Основной канал", url: CHANNEL }],
         userId === ADMIN_ID
           ? [{ text: "⚙️ Админ панель", callback_data: "admin" }]
@@ -110,15 +139,11 @@ bot.onText(/\/start/, async msg => {
     }
   })
 
-  // убираем старые закрепы
-  try {
-    await bot.unpinAllChatMessages(chatId)
-  } catch {}
+  saveMsg(userId, sent.message_id)
 
-  // закрепляем
-  try {
-    await bot.pinChatMessage(chatId, sent.message_id)
-  } catch {}
+  setTimeout(()=>{
+    bot.deleteMessage(chatId, sent.message_id).catch(()=>{})
+  }, 60000)
 })
 
 // кнопки
@@ -132,7 +157,7 @@ bot.on("callback_query", async q => {
   }
 
   if (data === "admin" && userId === ADMIN_ID) {
-    bot.sendMessage(chatId,
+    const msg = await bot.sendMessage(chatId,
 `⚙️ Админ панель
 
 👤 Пользователей: ${users.size}`,
@@ -144,14 +169,18 @@ bot.on("callback_query", async q => {
           ]
         }
       })
+
+    saveMsg(userId, msg.message_id)
   }
 
   if (data === "stats" && userId === ADMIN_ID) {
-    bot.sendMessage(chatId, `📊 Всего пользователей: ${users.size}`)
+    const msg = await bot.sendMessage(chatId, `📊 Всего пользователей: ${users.size}`)
+    saveMsg(userId, msg.message_id)
   }
 
   if (data === "broadcast" && userId === ADMIN_ID) {
-    bot.sendMessage(chatId, "✉️ Напиши сообщение для всех")
+    const msg = await bot.sendMessage(chatId, "✉️ Напиши сообщение для всех")
+    saveMsg(userId, msg.message_id)
     adminBroadcast = true
   }
 })
@@ -165,7 +194,9 @@ bot.on("message", async msg => {
 
   users.add(userId)
 
-  // 📢 РАССЫЛКА
+  await clearChat(chatId, userId)
+
+  // рассылка
   if (adminBroadcast && userId === ADMIN_ID) {
     adminBroadcast = false
 
@@ -191,28 +222,31 @@ bot.on("message", async msg => {
 
     addQueue(async () => {
 
-      // 🎬 GIF загрузки
       const waitMsg = await bot.sendAnimation(
         chatId,
         "https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/giphy.gif",
         { caption: "⏳ Загружаю..." }
       )
 
+      saveMsg(userId, waitMsg.message_id)
+
       try {
 
-        // ⚡ КЭШ
         if (cache.has(link)) {
           const cached = cache.get(link)
 
-          await bot.deleteMessage(chatId, waitMsg.message_id)
-          await bot.deleteMessage(chatId, msg.message_id)
+          await clearChat(chatId, userId)
 
           if (cached.type === "video") {
-            return bot.sendVideo(chatId, cached.data.file_id, cached.data.options)
+            const sent = await bot.sendVideo(chatId, cached.data.file_id, cached.data.options)
+            saveMsg(userId, sent.message_id)
+            return
           }
 
           if (cached.type === "photo") {
-            return bot.sendMediaGroup(chatId, cached.data)
+            const sentMedia = await bot.sendMediaGroup(chatId, cached.data)
+            sentMedia.forEach(m => saveMsg(userId, m.message_id))
+            return
           }
         }
 
@@ -221,14 +255,13 @@ bot.on("message", async msg => {
 
         const item = data.data
 
-        const views = item.play_count
-        const likes = item.digg_count
+        const views = formatNumber(item.play_count)
+        const likes = formatNumber(item.digg_count)
         const author = item.author.nickname
 
-        await bot.deleteMessage(chatId, waitMsg.message_id)
-        await bot.deleteMessage(chatId, msg.message_id)
+        await clearChat(chatId, userId)
 
-        // 🖼 ФОТО
+        // фото
         if (item.images && item.images.length) {
 
           const media = item.images.map((img, i) => ({
@@ -242,7 +275,9 @@ bot.on("message", async msg => {
 ❤️ ${likes}` : undefined
           }))
 
-          await bot.sendMediaGroup(chatId, media)
+          const sentMedia = await bot.sendMediaGroup(chatId, media)
+
+          sentMedia.forEach(m => saveMsg(userId, m.message_id))
 
           cache.set(link, {
             type: "photo",
@@ -252,7 +287,7 @@ bot.on("message", async msg => {
           return
         }
 
-        // 🎬 ВИДЕО
+        // видео
         const video = item.hdplay || item.play
 
         const sent = await bot.sendVideo(chatId, video, {
@@ -271,6 +306,8 @@ bot.on("message", async msg => {
           }
         })
 
+        saveMsg(userId, sent.message_id)
+
         cache.set(link, {
           type: "video",
           data: {
@@ -283,8 +320,9 @@ bot.on("message", async msg => {
         })
 
       } catch (e) {
-        await bot.deleteMessage(chatId, waitMsg.message_id)
-        bot.sendMessage(chatId, "❌ Ошибка загрузки")
+        await clearChat(chatId, userId)
+        const err = await bot.sendMessage(chatId, "❌ Ошибка загрузки")
+        saveMsg(userId, err.message_id)
       }
 
     })
