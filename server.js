@@ -9,7 +9,7 @@ const TOKEN = process.env.TOKEN
 const PORT = process.env.PORT || 3000
 const BOT_USERNAME = "AZASAVED_bot"
 const ADMIN_ID = 5331869155
-const CHANNEL = "https://t.me/AZAkzn1"
+const CHANNEL = "https://t.me/AZATECHNOLOGY_FREE"
 
 if (!TOKEN) {
   console.log("TOKEN missing")
@@ -25,7 +25,7 @@ app.listen(PORT)
 const bot = new TelegramBot(TOKEN, { polling: true })
 console.log("Bot started")
 
-// база
+// база пользователей
 const users = new Set()
 
 // админ режим
@@ -75,14 +75,19 @@ async function runQueue() {
   working = false
 }
 
-// старт
-bot.onText(/\/start/, msg => {
+// 🚀 START
+bot.onText(/\/start/, async msg => {
   const chatId = msg.chat.id
   const userId = msg.from.id
 
   users.add(userId)
 
-  bot.sendMessage(chatId,
+  // удаляем /start
+  try {
+    await bot.deleteMessage(chatId, msg.message_id)
+  } catch {}
+
+  const sent = await bot.sendMessage(chatId,
 `👋 Добро пожаловать!
 
 🎬 Я скачиваю TikTok видео без водяного знака.
@@ -92,10 +97,8 @@ bot.onText(/\/start/, msg => {
 2. Я скачаю быстро ⚡
 3. Получишь видео или фото
 
-👇 Просто отправь ссылку`
-  )
-
-  bot.sendMessage(chatId, "⬇️ Меню:", {
+👇 Просто отправь ссылку`,
+  {
     reply_markup: {
       inline_keyboard: [
         [{ text: "💖 Поддержка создателя", callback_data: "donate" }],
@@ -106,6 +109,16 @@ bot.onText(/\/start/, msg => {
       ]
     }
   })
+
+  // убираем старые закрепы
+  try {
+    await bot.unpinAllChatMessages(chatId)
+  } catch {}
+
+  // закрепляем
+  try {
+    await bot.pinChatMessage(chatId, sent.message_id)
+  } catch {}
 })
 
 // кнопки
@@ -152,7 +165,7 @@ bot.on("message", async msg => {
 
   users.add(userId)
 
-  // рассылка
+  // 📢 РАССЫЛКА
   if (adminBroadcast && userId === ADMIN_ID) {
     adminBroadcast = false
 
@@ -181,7 +194,7 @@ bot.on("message", async msg => {
       // 🎬 GIF загрузки
       const waitMsg = await bot.sendAnimation(
         chatId,
-        "https://www.emojiall.com/images/240/telegram/231b.gif",
+        "https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/giphy.gif",
         { caption: "⏳ Загружаю..." }
       )
 
