@@ -463,33 +463,65 @@ async function runQueue() {
 //  API — TikTok
 // ══════════════════════════════════════════════════════════════════════════════
 async function fetchTikTok(url) {
-  const endpoints = [
-    `https://www.tikwm.com/api/?url=${encodeURIComponent(url)}&hd=1`,
-    `https://www.tikwm.com/api/?url=${encodeURIComponent(url)}`,
-  ]
-  for (const ep of endpoints) {
-    try {
-      const { data } = await axios.get(ep, { timeout: 15_000 })
-      if (data?.data) return data.data
-    } catch {}
+  try {
+    // 🔥 1. Разворачиваем короткую ссылку
+    const res = await axios.get(url, {
+      maxRedirects: 5,
+      headers: { "User-Agent": "Mozilla/5.0" }
+    })
+
+    const finalUrl = res.request?.res?.responseUrl || url
+
+    // 🔥 2. Запрос к API
+    const { data } = await axios.get(
+      `https://www.tikwm.com/api/?url=${encodeURIComponent(finalUrl)}&hd=1`,
+      {
+        timeout: 15000,
+        headers: { "User-Agent": "Mozilla/5.0" }
+      }
+    )
+
+    // 🔥 3. Проверка
+    if (data?.data) return data.data
+
+    console.log("TikTok bad response:", data)
+    throw new Error("Empty response")
+
+  } catch (e) {
+    console.log("TikTok API error:", e.message)
+    throw new Error("TikTok API failed")
   }
-  throw new Error("TikTok API failed")
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  API — Instagram
 // ══════════════════════════════════════════════════════════════════════════════
 async function fetchInstagram(url) {
-  // Primary: snapinsta
+  // 🔥 1. Основной API
   try {
     const { data } = await axios.get(
       `https://snapinsta.app/api/?url=${encodeURIComponent(url)}`,
-      { timeout: 15_000 }
+      {
+        timeout: 15000,
+        headers: { "User-Agent": "Mozilla/5.0" }
+      }
     )
-    if (data?.url) return { type: "video", url: data.url, thumb: data.thumbnail || null }
-  } catch {}
 
-  // Fallback: instagramdloader via rapid-style proxy
+    if (data?.url) {
+      return {
+        type: "video",
+        url: data.url,
+        thumb: data.thumbnail || null
+      }
+    }
+
+    console.log("Snapinsta bad response:", data)
+
+  } catch (e) {
+    console.log("Snapinsta error:", e.message)
+  }
+
+  // 🔥 2. fallback API (если первый не сработал)
   try {
     const { data } = await axios.post(
       "https://instagram-downloader-download-instagram-videos-stories1.p.rapidapi.com/get-info-rapidapi",
@@ -498,16 +530,27 @@ async function fetchInstagram(url) {
         headers: {
           "Content-Type": "application/json",
           "X-RapidAPI-Host": "instagram-downloader-download-instagram-videos-stories1.p.rapidapi.com",
-          "X-RapidAPI-Key": process.env.RAPID_API_KEY || ""
+          "X-RapidAPI-Key": process.env.RAPID_API_KEY || "",
+          "User-Agent": "Mozilla/5.0"
         },
-        timeout: 15_000
+        timeout: 15000
       }
     )
-    if (data?.url) return { type: "video", url: data.url }
-  } catch {}
 
+    if (data?.url) {
+      return { type: "video", url: data.url }
+    }
+
+    console.log("Fallback bad response:", data)
+
+  } catch (e) {
+    console.log("Fallback error:", e.message)
+  }
+
+  // ❌ если всё сломалось
   throw new Error("Instagram API failed")
 }
+
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  KEYBOARDS
