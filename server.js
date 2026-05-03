@@ -335,19 +335,124 @@ async function runQueue() {
 // ══════════════════════════════════════════════════════════════════════════════
 //  FETCH TIKTOK
 // ══════════════════════════════════════════════════════════════════════════════
-async function fetchTikTok(url) {
-  // Пробуем несколько эндпоинтов
-  const endpoints = [
-    `https://www.tikwm.com/api/?url=${encodeURIComponent(url)}&hd=1`,
-    `https://www.tikwm.com/api/?url=${encodeURIComponent(url)}`,
-  ]
-  for (const ep of endpoints) {
-    try {
-      const { data } = await axios.get(ep, { timeout: 20_000 })
-      if (data?.data) return data.data
-    } catch {}
+
+// Расширяем короткие ссылки vm.tiktok.com → полная ссылка
+async function expandUrl(url) {
+  try {
+    const res = await axios.get(url, {
+      timeout: 10_000,
+      maxRedirects: 5,
+      headers: { "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15" }
+    })
+    return res.request?.res?.responseUrl || res.config?.url || url
+  } catch (e) {
+    return e?.request?.res?.responseUrl || url
   }
-  throw new Error("TikTok API failed")
+}
+
+async function fetchTikTok(url) {
+  // Раскрываем короткие ссылки
+  let finalUrl = url
+  if (url.includes("vm.tiktok.com") || url.includes("vt.tiktok.com")) {
+    finalUrl = await expandUrl(url)
+  }
+
+  const encoded = encodeURIComponent(finalUrl)
+
+  // Все API источники по порядку
+  const attempts = [
+    // tikwm — основной
+    async () => {
+      const { data } = await axios.get(
+        `https://www.tikwm.com/api/?url=${encoded}&hd=1`,
+        {
+          timeout: 20_000,
+          headers: {
+            "User-Agent": "Mozilla/5.0",
+            "Accept": "application/json"
+          }
+        }
+      )
+      if (data?.code === 0 && data?.data) return data.data
+      throw new Error(data?.msg || "tikwm failed")
+    },
+
+    // tikwm без hd
+    async () => {
+      const { data } = await axios.get(
+        `https://www.tikwm.com/api/?url=${encoded}`,
+        { timeout: 20_000, headers: { "User-Agent": "Mozilla/5.0" } }
+      )
+      if (data?.code === 0 && data?.data) return data.data
+      throw new Error("tikwm no-hd failed")
+    },
+
+    // tiklydown
+    async () => {
+      const { data } = await axios.get(
+        `https://api.tiklydown.eu.org/api/download?url=${encoded}`,
+        { timeout: 20_000, headers: { "User-Agent": "Mozilla/5.0" } }
+      )
+      // tiklydown возвращает другой формат — нормализуем
+      if (data?.video?.noWatermark) {
+        return {
+          play:          data.video.noWatermark,
+          hdplay:        data.video.noWatermark,
+          play_count:    data.stats?.playCount   || 0,
+          digg_count:    data.stats?.likeCount   || 0,
+          comment_count: data.stats?.commentCount|| 0,
+          share_count:   data.stats?.shareCount  || 0,
+          title:         data.title || "",
+          author: {
+            nickname:  data.author?.name || "Unknown",
+            unique_id: data.author?.unique_id || ""
+          },
+          images: null
+        }
+      }
+      throw new Error("tiklydown failed")
+    },
+
+    // ssstik (scrape)
+    async () => {
+      const res = await axios.post(
+        "https://ssstik.io/abc?lang=en",
+        `id=${encodeURIComponent(finalUrl)}&locale=en&tt=YVpwdG1z`,
+        {
+          timeout: 20_000,
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": "https://ssstik.io/en",
+            "Origin": "https://ssstik.io"
+          }
+        }
+      )
+      // Парсим ссылку из HTML
+      const match = res.data?.match(/href="(https:\/\/[^"]*\.mp4[^"]*)"/)
+      if (match?.[1]) {
+        return {
+          play: match[1], hdplay: match[1],
+          play_count: 0, digg_count: 0, comment_count: 0, share_count: 0,
+          title: "", author: { nickname: "TikTok", unique_id: "" }, images: null
+        }
+      }
+      throw new Error("ssstik failed")
+    }
+  ]
+
+  const errors = []
+  for (const attempt of attempts) {
+    try {
+      const result = await attempt()
+      if (result) return result
+    } catch (e) {
+      errors.push(e.message)
+      console.log("TikTok API attempt failed:", e.message)
+    }
+  }
+
+  throw new Error(`All TikTok APIs failed: ${errors.join(" | ")}`)
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1111,7 +1216,13 @@ bot.on("message", async msg => {
       } catch (e) {
         console.error("Download error:", e.message)
         safeDelete(chatId, waitMsg.message_id)
-        const err = await bot.sendMessage(chatId, t(userId, "error"))
+
+        let errText = t(userId, "error")
+        if (e.message.includes("All TikTok APIs failed")) {
+          errText = `❌ Не удалось скачать видео.\n\n🔄 Попробуй:\n• Скопируй ссылку заново из TikTok\n• Убедись что видео публичное\n• Попробуй через 30 секунд`
+        }
+
+        const err = await bot.sendMessage(chatId, errText)
         setTimeout(() => safeDelete(chatId, err.message_id), 15_000)
       }
     })
