@@ -2,14 +2,15 @@ import TelegramBot from "node-telegram-bot-api"
 import axios from "axios"
 import express from "express"
 import dotenv from "dotenv"
-
+import ffmpeg from "fluent-ffmpeg"
+import ffmpegPath from "ffmpeg-static"
 dotenv.config()
 
 const TOKEN = process.env.TOKEN
 const PORT = process.env.PORT || 3000
 const BOT_USERNAME = "AZASAVED_bot"
 const ADMIN_ID = 5331869155
-
+ffmpeg.setFfmpegPath(ffmpegPath)
 if(!TOKEN){
   console.log("TOKEN missing")
   process.exit(1)
@@ -222,18 +223,18 @@ bot.on("message", async msg=>{
         await bot.deleteMessage(chatId,loading.message_id)
         await bot.deleteMessage(chatId,userMessageId)
 
-        const sent = await bot.sendVideo(chatId, video,{
-          caption:`📥 Скачано через @${BOT_USERNAME}`,
-          reply_markup:{
-            inline_keyboard:[
-              [{text:"💾 Сохранить", url: video}],
-              [{text:"🎵 Скачать музыку", callback_data:`music_${encodeURIComponent(link)}`}],
-              [{text:"➕ Добавить в группу", url:`https://t.me/${BOT_USERNAME}?startgroup=true`}]
-            ]
-          }
-        })
+const sent = await bot.sendVideo(chatId, video,{
+  caption:`📥 Скачано через @${BOT_USERNAME}`,
+  reply_markup:{
+    inline_keyboard:[
+      [{text:"💾 Сохранить", url: video}],
+      [{text:"🎵 Скачать музыку", callback_data:`music_${encodeURIComponent(link)}`}],
+      [{text:"➕ Добавить в группу", url:`https://t.me/${BOT_USERNAME}?startgroup=true`}]
+    ]
+  }
+})
 
-        cache.set(link, sent.video.file_id)
+cache.set(link, sent.video.file_id)
 
       }catch{
         bot.sendMessage(chatId,"❌ Ошибка")
