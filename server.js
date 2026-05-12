@@ -4,6 +4,8 @@ import express from "express"
 import dotenv from "dotenv"
 import ffmpeg from "fluent-ffmpeg"
 import ffmpegPath from "ffmpeg-static"
+import fs from "fs"
+import path from "path"
 dotenv.config()
 
 const TOKEN = process.env.TOKEN
@@ -223,25 +225,56 @@ bot.on("message", async msg=>{
         await bot.deleteMessage(chatId,loading.message_id)
         await bot.deleteMessage(chatId,userMessageId)
 
-const sent = await bot.sendVideo(chatId, video,{
-  caption:`📥 Скачано через @${BOT_USERNAME}`,
-  reply_markup:{
-    inline_keyboard:[
-      [{text:"💾 Сохранить", url: video}],
-      [{text:"🎵 Скачать музыку", callback_data:`music_${encodeURIComponent(link)}`}],
-      [{text:"➕ Добавить в группу", url:`https://t.me/${BOT_USERNAME}?startgroup=true`}]
-    ]
-  }
+const input = `/tmp/input_${Date.now()}.mp4`
+const output = `/tmp/output_${Date.now()}.mp4`
+
+// скачать видео
+const response = await axios({
+  url: video,
+  method: "GET",
+  responseType: "stream"
 })
 
-cache.set(link, sent.video.file_id)
+const writer = fs.createWriteStream(input)
+response.data.pipe(writer)
 
-      }catch{
-        bot.sendMessage(chatId,"❌ Ошибка")
-      }
+await new Promise((resolve,reject)=>{
+  writer.on("finish",resolve)
+  writer.on("error",reject)
+})
+
+// ffmpeg кружок
+await new Promise((resolve,reject)=>{
+  ffmpeg(input)
+    .videoFilters("crop='min(iw,ih)':'min(iw,ih)',scale=240:240")
+    .outputOptions([
+      "-c:v libx264",
+      "-preset veryfast",
+      "-crf 28"
+    ])
+    .save(output)
+    .on("end",resolve)
+    .on("error",reject)
+})
+
+// отправка кружка
+await bot.sendVideoNote(chatId, output,{
+  length:240
+})
+
+// удаление файлов
+fs.unlinkSync(input)
+fs.unlinkSync(output)
+
+
+      }catch(err){
+  console.log(err)
+  bot.sendMessage(chatId,"❌ Ошибка создания кружка")
+}
+
     })
   }
 })
 
 process.on("unhandledRejection",console.error)
-process.on("uncaughtException",console.error)   
+process.on("uncaughtException",console.error)
