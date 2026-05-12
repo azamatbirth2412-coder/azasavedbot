@@ -20,7 +20,7 @@ const PORT         = process.env.PORT || 3000
 const BOT_USERNAME = "AZASAVED_bot"
 const ADMIN_ID     = 5331869155
 const CHANNEL      = "https://t.me/AZATECHNOLOGY_FREE"
-const CHANNEL_ID   = process.env.CHANNEL_ID || ""  // "@AZATECHNOLOGY_FREE"
+const CHANNEL_ID = ""
 
 const EXPECTED_BOT = "AZASAVED_bot"
 const REAL_ADMIN   = 5331869155
@@ -241,16 +241,7 @@ async function notifyAdmin(text) {
   try { await bot.sendMessage(ADMIN_ID, text, { parse_mode: "Markdown" }) } catch {}
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  SUB CHECK
-// ══════════════════════════════════════════════════════════════════════════════
-async function isSubscribed(userId) {
-  if (!CHANNEL_ID) return true
-  try {
-    const m = await bot.getChatMember(CHANNEL_ID, userId)
-    return ["member","administrator","creator"].includes(m.status)
-  } catch { return true }
-}
+
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  ADS
@@ -351,108 +342,110 @@ async function expandUrl(url) {
 }
 
 async function fetchTikTok(url) {
-  // Раскрываем короткие ссылки
   let finalUrl = url
+
   if (url.includes("vm.tiktok.com") || url.includes("vt.tiktok.com")) {
     finalUrl = await expandUrl(url)
   }
 
   const encoded = encodeURIComponent(finalUrl)
 
-  // Все API источники по порядку
-  const attempts = [
-    // tikwm — основной
+  const apis = [
     async () => {
       const { data } = await axios.get(
         `https://www.tikwm.com/api/?url=${encoded}&hd=1`,
         {
-          timeout: 20_000,
+          timeout: 30000,
           headers: {
-            "User-Agent": "Mozilla/5.0",
-            "Accept": "application/json"
+            "User-Agent": "Mozilla/5.0"
           }
         }
       )
-      if (data?.code === 0 && data?.data) return data.data
-      throw new Error(data?.msg || "tikwm failed")
+
+      if (data?.code === 0 && data?.data) {
+        return data.data
+      }
+
+      throw new Error("tikwm failed")
     },
 
-    // tikwm без hd
     async () => {
       const { data } = await axios.get(
-        `https://www.tikwm.com/api/?url=${encoded}`,
-        { timeout: 20_000, headers: { "User-Agent": "Mozilla/5.0" } }
+        `https://tikdownloader.io/api/ajaxSearch`,
+        {
+          params: {
+            q: finalUrl,
+            lang: "en"
+          },
+          timeout: 30000,
+          headers: {
+            "User-Agent": "Mozilla/5.0",
+            "X-Requested-With": "XMLHttpRequest"
+          }
+        }
       )
-      if (data?.code === 0 && data?.data) return data.data
-      throw new Error("tikwm no-hd failed")
+
+      const match = data?.data?.match(/https:\/\/[^\\\"]+\\.mp4[^\\\"]+/)
+
+      if (match?.[0]) {
+        return {
+          play: match[0],
+          hdplay: match[0],
+          title: "",
+          author: {
+            nickname: "TikTok",
+            unique_id: ""
+          }
+        }
+      }
+
+      throw new Error("tikdownloader failed")
     },
 
-    // tiklydown
     async () => {
       const { data } = await axios.get(
         `https://api.tiklydown.eu.org/api/download?url=${encoded}`,
-        { timeout: 20_000, headers: { "User-Agent": "Mozilla/5.0" } }
-      )
-      // tiklydown возвращает другой формат — нормализуем
-      if (data?.video?.noWatermark) {
-        return {
-          play:          data.video.noWatermark,
-          hdplay:        data.video.noWatermark,
-          play_count:    data.stats?.playCount   || 0,
-          digg_count:    data.stats?.likeCount   || 0,
-          comment_count: data.stats?.commentCount|| 0,
-          share_count:   data.stats?.shareCount  || 0,
-          title:         data.title || "",
-          author: {
-            nickname:  data.author?.name || "Unknown",
-            unique_id: data.author?.unique_id || ""
-          },
-          images: null
-        }
-      }
-      throw new Error("tiklydown failed")
-    },
-
-    // ssstik (scrape)
-    async () => {
-      const res = await axios.post(
-        "https://ssstik.io/abc?lang=en",
-        `id=${encodeURIComponent(finalUrl)}&locale=en&tt=YVpwdG1z`,
         {
-          timeout: 20_000,
+          timeout: 30000,
           headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Referer": "https://ssstik.io/en",
-            "Origin": "https://ssstik.io"
+            "User-Agent": "Mozilla/5.0"
           }
         }
       )
-      // Парсим ссылку из HTML
-      const match = res.data?.match(/href="(https:\/\/[^"]*\.mp4[^"]*)"/)
-      if (match?.[1]) {
+
+      if (data?.video?.noWatermark) {
         return {
-          play: match[1], hdplay: match[1],
-          play_count: 0, digg_count: 0, comment_count: 0, share_count: 0,
-          title: "", author: { nickname: "TikTok", unique_id: "" }, images: null
+          play: data.video.noWatermark,
+          hdplay: data.video.noWatermark,
+          title: data.title || "",
+          author: {
+            nickname: data.author?.name || "TikTok",
+            unique_id: ""
+          },
+          play_count: 0,
+          digg_count: 0,
+          comment_count: 0,
+          share_count: 0
         }
       }
-      throw new Error("ssstik failed")
+
+      throw new Error("tiklydown failed")
     }
   ]
 
-  const errors = []
-  for (const attempt of attempts) {
+  for (const api of apis) {
     try {
-      const result = await attempt()
-      if (result) return result
+      const result = await api()
+
+      if (result?.hdplay || result?.play) {
+        return result
+      }
     } catch (e) {
-      errors.push(e.message)
-      console.log("TikTok API attempt failed:", e.message)
+      console.log("TikTok API error:", e.message)
     }
   }
 
-  throw new Error(`All TikTok APIs failed: ${errors.join(" | ")}`)
+  throw new Error("TikTok download failed")
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -546,16 +539,7 @@ bot.onText(/\/start/, async msg => {
   trackUser(msg)
   safeDelete(chatId, msg.message_id)
 
-  if (CHANNEL_ID && !(await isSubscribed(userId))) {
-    await bot.sendMessage(chatId, t(userId, "sub_req"), {
-      parse_mode: "Markdown",
-      reply_markup: { inline_keyboard: [
-        [{ text: "📢 Подписаться", url: CHANNEL }],
-        [{ text: t(userId, "sub_btn"), callback_data: "check_sub" }]
-      ]}
-    })
-    return
-  }
+
 
   await bot.sendMessage(chatId, t(userId, "welcome"), {
     parse_mode: "Markdown",
@@ -602,7 +586,6 @@ bot.onText(/\/stats/, async msg => {
 // ══════════════════════════════════════════════════════════════════════════════
 bot.on("callback_query", async q => {
   const chatId = q.message.chat.id
-  const userId = q.from.id
   const data   = q.data
 
   await bot.answerCallbackQuery(q.id).catch(() => {})
@@ -640,15 +623,7 @@ bot.on("callback_query", async q => {
     return
   }
 
-  // ── Sub check ────────────────────────────────────────────────────────────────
-  if (data === "check_sub") {
-    if (await isSubscribed(userId)) {
-      await bot.sendMessage(chatId, t(userId, "welcome"), { parse_mode: "Markdown", reply_markup: mainKb(userId) })
-    } else {
-      await bot.answerCallbackQuery(q.id, { text: "❌ Ты ещё не подписан!", show_alert: true })
-    }
-    return
-  }
+
 
   // ── Public ───────────────────────────────────────────────────────────────────
   if (data === "donate") {
@@ -1063,17 +1038,7 @@ bot.on("message", async msg => {
     return
   }
 
-  // Проверка подписки
-  if (CHANNEL_ID && !(await isSubscribed(userId))) {
-    await bot.sendMessage(chatId, t(userId, "sub_req"), {
-      parse_mode: "Markdown",
-      reply_markup: { inline_keyboard: [
-        [{ text: "📢 Подписаться", url: CHANNEL }],
-        [{ text: t(userId, "sub_btn"), callback_data: "check_sub" }]
-      ]}
-    })
-    return
-  }
+  
 
   safeDelete(chatId, msg.message_id)
 
@@ -1155,11 +1120,19 @@ bot.on("message", async msg => {
             const videoUrl = item.hdplay || item.play
             if (!videoUrl) throw new Error("No video URL")
 
-            const sent = await bot.sendVideo(chatId, videoUrl, {
+           const response = await axios.get(videoUrl, {
+  responseType: "arraybuffer",
+  timeout: 120000,
+  headers: {
+    "User-Agent": "Mozilla/5.0"
+  }
+})
+
+const sent = await bot.sendVideo(chatId, Buffer.from(response.data), {
               caption,
               parse_mode:        "Markdown",
               supports_streaming: true,
-              reply_markup:       videoKb("tmp")   // временный, сразу обновим
+              reply_markup:       videoKb("tmp")
             })
 
             const mid = String(sent.message_id)
