@@ -2,17 +2,14 @@ import TelegramBot from "node-telegram-bot-api"
 import axios from "axios"
 import express from "express"
 import dotenv from "dotenv"
-import ffmpeg from "fluent-ffmpeg"
-import ffmpegPath from "ffmpeg-static"
-import fs from "fs"
-import path from "path"
+
 dotenv.config()
 
 const TOKEN = process.env.TOKEN
 const PORT = process.env.PORT || 3000
 const BOT_USERNAME = "AZASAVED_bot"
 const ADMIN_ID = 5331869155
-ffmpeg.setFfmpegPath(ffmpegPath)
+
 if(!TOKEN){
   console.log("TOKEN missing")
   process.exit(1)
@@ -224,54 +221,21 @@ bot.on("message", async msg=>{
         // удаляем гифку и сообщение
         await bot.deleteMessage(chatId,loading.message_id)
         await bot.deleteMessage(chatId,userMessageId)
-
-const input = `/tmp/input_${Date.now()}.mp4`
-const output = `/tmp/output_${Date.now()}.mp4`
-
-// скачать видео
-const response = await axios({
-  url: video,
-  method: "GET",
-  responseType: "stream"
+// отправка обычного видео
+const sent = await bot.sendVideo(chatId, video,{
+  caption:`📥 Скачано через @${BOT_USERNAME}`,
+  supports_streaming:true,
+  reply_markup:{
+    inline_keyboard:[
+      [{text:"💾 Скачать", url: video}],
+      [{text:"🎵 Скачать музыку", callback_data:`music_${encodeURIComponent(link)}`}],
+      [{text:"➕ Добавить в группу", url:`https://t.me/${BOT_USERNAME}?startgroup=true`}]
+    ]
+  }
 })
 
-const writer = fs.createWriteStream(input)
-response.data.pipe(writer)
-
-await new Promise((resolve,reject)=>{
-  writer.on("finish",resolve)
-  writer.on("error",reject)
-})
-
-// ffmpeg кружок
-// ffmpeg кружок
-await new Promise((resolve, reject) => {
-  ffmpeg(input)
-    .videoFilters([
-      "crop='min(iw,ih)':'min(iw,ih)'",
-      "scale=240:240"
-    ])
-    .outputOptions([
-      "-c:v libx264",
-      "-preset veryfast", 
-      "-crf 28",
-      "-c:a aac",        // ← аудио кодек явно
-      "-pix_fmt yuv420p", // ← ЭТО ГЛАВНОЕ! Telegram требует yuv420p
-      "-movflags +faststart"
-    ])
-    .save(output)
-    .on("end", resolve)
-    .on("error", reject)
-})
-// отправка кружка
-await bot.sendVideoNote(chatId, output,{
-  length:240
-})
-
-// удаление файлов
-fs.unlinkSync(input)
-fs.unlinkSync(output)
-
+// cache
+cache.set(link, sent.video.file_id)
 
       }catch(err){
   console.log(err)
