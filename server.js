@@ -244,19 +244,25 @@ await new Promise((resolve,reject)=>{
 })
 
 // ffmpeg кружок
-await new Promise((resolve,reject)=>{
+// ffmpeg кружок
+await new Promise((resolve, reject) => {
   ffmpeg(input)
-    .videoFilters("crop='min(iw,ih)':'min(iw,ih)',scale=240:240")
+    .videoFilters([
+      "crop='min(iw,ih)':'min(iw,ih)'",
+      "scale=240:240"
+    ])
     .outputOptions([
       "-c:v libx264",
-      "-preset veryfast",
-      "-crf 28"
+      "-preset veryfast", 
+      "-crf 28",
+      "-c:a aac",        // ← аудио кодек явно
+      "-pix_fmt yuv420p", // ← ЭТО ГЛАВНОЕ! Telegram требует yuv420p
+      "-movflags +faststart"
     ])
     .save(output)
-    .on("end",resolve)
-    .on("error",reject)
+    .on("end", resolve)
+    .on("error", reject)
 })
-
 // отправка кружка
 await bot.sendVideoNote(chatId, output,{
   length:240
